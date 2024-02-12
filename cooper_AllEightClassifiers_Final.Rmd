@@ -1,0 +1,1625 @@
+---
+title: "cooper_EightPlusClassifiers_SpotifyTop2000"
+author: "Tamara Cooper"
+date: '2022-11-30'
+output: html_document
+---
+
+### Some codes for Package
+install.packages("rmarkdown");   
+install.packages("tidyverse");
+install.packages("ggplot2");
+install.packages("RColorBrewer");
+install.packages("kableExtra");
+install.packages("papeR");
+install.packages("epitab");
+install.packages("gplots");
+
+```{r, include=FALSE}
+library(tidyverse);
+library(ggplot2);
+library(RColorBrewer);
+library(MASS);
+library(knitr);
+library(kableExtra);
+library(RColorBrewer);
+library("papeR");
+library(epitab);
+library("gplots")
+myPalette <- brewer.pal(8, "Set2") 
+```
+
+
+### Dataset Spotify Top 2000
+```{r}
+spTop <- read.csv("spotify_top_2000.csv", header = T, na.strings = "?")
+spTop$Length..Duration.= as.integer(gsub(",", "", spTop$Length..Duration.))
+spTop_renamed <- rename(spTop, c(Genre = Top.Genre, BPM = Beats.Per.Minute..BPM., Loud_dB = Loudness..dB., Duration = Length..Duration.))
+head(spTop_renamed)
+```
+
+### Condensing the Genres
+```{r}
+#replacing with top genre names based on unique element found above
+onlyalternative=c()
+onlydance = c()
+onlyindie = c()
+onlyrock = c()
+onlyadult= c()
+other=c()
+Abbrev = c()
+for(i in spTop$Top.Genre) {
+  onlyalternative = c(onlyalternative,str_replace_all(i,".*alternative.*|.*permanent wave.*|.*indie.*","alternative"))
+}# replacing anything which contains alternative
+for(i in onlyalternative) {
+  onlydance = c(onlydance,str_replace_all(i,".*dance.*|.*disco.*|.*electro.*|.*downtempo.*|.*j-core.*|.*diva house.*|.*cyberpunk.*|.*edm|.*gabba.*|.*big room.*|.*trance.*|.*eurodance.*|.*big beat.*|.*happy hardcore.*","dance"))
+}# replacing anything which contains dance
+for(i in onlydance) {
+  onlyrock = c(onlyrock,str_replace_all(i,".*rock.*|.*british invasion.*|.*glam metal.*","rock"))
+}# replacing anything which contains rock
+for(i in onlyrock) {
+  onlyadult = c(onlyadult,str_replace_all(i,".*adult standards.*|.*soul.*|.*jazz.*","adult standards"))
+}# replacing anything which contains adult standards
+for(i in onlyadult) {
+  other = c(other,str_replace_all(i,".*pop.*|.*neo mellow.*","pop"))
+}# replacing anything which contains pop
+for(i in other) {
+  j=str_replace_all(i,"^(?!(alternative|dance|rock|adult standards|pop))","other")
+  Abbrev = c(Abbrev,str_replace_all(j,".*other.*","other"))
+}# replacing everything else 
+```
+
+#### Add the "genres" column using the condensed genres
+```{r}
+spTop_genres <- mutate(spTop_renamed, genres = Abbrev)
+head(spTop_genres)
+```
+
+#### Categorize Popularity Value into 0 = Low and 1 = High
+```{r}
+### Set groupedPopularity as an integer value
+groupedPopularity <- as.integer(ifelse(spTop_genres$Popularity > median(spTop_genres$Popularity), "1", "0"))
+popDF <- data.frame(spTop_genres, groupedPopularity)
+
+table(groupedPopularity)  ### View groupedPopularity counts
+```
+
+```{r}
+boxplot(spTop_genres$Popularity)
+```
+
+```{r}
+fivenum(spTop_genres$Popularity)
+mean(spTop_genres$Popularity)
+```
+
+#### Categorize Popularity Value into 0 = Low and 1 = High
+```{r}
+### Set groupedPopularity as an integer value
+groupedPopularity <- as.integer(ifelse(spTop_genres$Popularity > 61, "1", "0"))
+popDF <- data.frame(spTop_genres, groupedPopularity)
+
+table(groupedPopularity)  ### View groupedPopularity counts
+```
+
+```{r}
+### Create gen_asInt dataframe with genres re-coded as numbers into the genreNumber variable
+gen_asInt <- popDF %>% mutate(genreNumber = as.integer(case_when(genres == "adult standards" ~ '1',
+                                                            genres == "rock" ~ '2',
+                                                            genres == "alternative"  ~ '3',
+                                                            genres == "pop" ~ '4',
+                                                            genres == "dance"  ~ '5',
+                                                            genres == "other" ~ '6'
+                                                           )))  # end function
+
+head(gen_asInt)  ### view gen_asInt dataframe
+```
+
+#### Create dataframe with only numeric predictors and categorized response
+```{r}
+spTop_Num <- data.frame(subset(gen_asInt, select = c(-Title, -Artist, -Genre, -Popularity, -genres)))
+head(spTop_Num)
+```
+
+## Full Data Set Classifications
+
+### LDA
+```{r}
+library(MASS)
+lda.fit <- lda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num) ### LDA model
+lda.fit
+plot(lda.fit)
+```
+
+```{r}
+lda_pred = predict(lda.fit, spTop_Num) ### LDA prediction
+names(lda_pred)
+```
+
+#### All LDA code with time tracking
+```{r}
+start.time <- Sys.time()
+lda.fit <- lda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num)
+lda.fit
+plot(lda.fit)
+lda_pred = predict(lda.fit, spTop_Num)
+names(lda_pred)
+pred.lda <- predict(lda.fit, gen_asInt)
+lda.conM <- table(pred.lda$class, groupedPopularity)
+lda.acc <- mean(pred.lda$class == groupedPopularity)
+lda.test.error = (1 - lda.acc)*100
+lda.sen <- lda.conM[2,2]/(lda.conM[1,2]+lda.conM[2,2])
+lda.spec <- lda.conM[1,1]/(lda.conM[1,1]+lda.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+lda.conM
+lda.acc
+lda.test.error
+lda.sen
+lda.spec
+```
+
+### QDA
+```{r}
+qda.fit <- qda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num)  ### QDA model
+qda.fit
+```
+
+```{r}
+qda_pred = predict(qda.fit, spTop_Num)  ### QDA predictions
+names(qda_pred)
+```
+
+#### All QDA code with time tracking
+```{r}
+start.time <- Sys.time()
+qda.fit <- qda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num)
+qda.fit
+qda_pred = predict(qda.fit, spTop_Num)
+names(qda_pred)
+pred.qda <- predict(qda.fit)
+table(pred.qda$class, groupedPopularity)
+qda.conM <- table(pred.qda$class, groupedPopularity)
+qda.acc <- mean(pred.qda$class == groupedPopularity)
+qda.test.error = (1 - qda.acc)*100
+qda.sen <- qda.conM[2,2]/(qda.conM[1,2]+qda.conM[2,2])
+qda.spec <- qda.conM[1,1]/(qda.conM[1,1]+qda.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+qda.conM
+qda.acc
+qda.test.error
+qda.sen
+qda.spec
+```
+
+### Logistic Regression
+```{r}
+glm.fit <- glm(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, family = binomial())  ### Log. Reg. model
+glm.fit
+glm.probs <- predict(glm.fit,  type = "response")
+```
+
+```{r}
+summary(glm.fit)  ### mdoel summary
+```
+
+```{r}
+glm.probs[1:10]  ### View first 10 Log. Reg. probabilities
+```
+
+#### All Logistic Regression code with time tracking
+```{r}
+start.time <- Sys.time()
+glm.fit <- glm(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, family = binomial())  ### Log. Reg. model
+glm.fit
+glm.probs <- predict(glm.fit,  type = "response")
+glm.pred <- rep("0", 1994)
+length(glm.pred)
+glm.pred[glm.probs > .5] = "1"
+length(glm.pred)
+lr.conM <- table(glm.pred, groupedPopularity)
+lr.acc <- mean(glm.pred == groupedPopularity)
+lr.test.error = (1 - lr.acc)*100
+lr.sen <- lr.conM[2,2]/(lr.conM[1,2]+lr.conM[2,2])
+lr.spec <- lr.conM[1,1]/(lr.conM[1,1]+lr.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+lr.conM
+lr.acc
+lr.test.error
+lr.sen
+lr.spec
+```
+
+
+### KNN
+```{r}
+library(class)
+train.X <- cbind(spTop_Num$Year, spTop_Num$BPM, spTop_Num$Energy, spTop_Num$Danceability, spTop_Num$Loud_dB, spTop_Num$Liveness, spTop_Num$Valence, spTop_Num$Duration, spTop_Num$Acousticness, spTop_Num$Speechiness, spTop_Num$genreNumber)
+test.X <- cbind(spTop_Num$Year, spTop_Num$BPM, spTop_Num$Energy, spTop_Num$Danceability, spTop_Num$Loud_dB, spTop_Num$Liveness, spTop_Num$Valence, spTop_Num$Duration, spTop_Num$Acousticness, spTop_Num$Speechiness, spTop_Num$genreNumber)
+train.pop <- groupedPopularity
+```
+
+#### Set Seed and Run K = 1 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn.pred1 <- knn(train.X, test.X, train.pop, k = 1)
+knn1.conM <- table(knn.pred1, groupedPopularity)
+knn1.acc <- mean(knn.pred1 == groupedPopularity)
+knn1.test.error = (1 - knn1.acc)*100
+knn1.sen <- knn1.conM[2,2]/(knn1.conM[1,2]+knn1.conM[2,2])
+knn1.spec <- knn1.conM[1,1]/(knn1.conM[1,1]+knn1.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn1.conM
+knn1.acc
+knn1.test.error
+knn1.sen
+knn1.spec
+```
+
+#### K = 3
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn.pred3 <- knn(train.X, test.X, train.pop, k = 3)
+knn3.conM <- table(knn.pred3, groupedPopularity)
+knn3.acc <- mean(knn.pred3 == groupedPopularity)
+knn3.test.error = (1 - knn3.acc)*100
+knn3.sen <- knn3.conM[2,2]/(knn3.conM[1,2]+knn3.conM[2,2])
+knn3.spec <- knn3.conM[1,1]/(knn3.conM[1,1]+knn3.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn3.conM
+knn3.acc
+knn3.test.error
+knn3.sen
+knn3.spec
+```
+
+### k = 5
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn.pred5 <- knn(train.X, test.X, train.pop, k = 5)
+knn5.conM <- table(knn.pred5, groupedPopularity)
+knn5.acc <- mean(knn.pred5 == groupedPopularity)
+knn5.test.error = (1 - knn5.acc)*100
+knn5.sen <- knn5.conM[2,2]/(knn5.conM[1,2]+knn5.conM[2,2])
+knn5.spec <- knn5.conM[1,1]/(knn5.conM[1,1]+knn5.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn5.conM
+knn5.acc
+knn5.test.error
+knn5.sen
+knn5.spec
+```
+
+### k = 8
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn.pred8 <- knn(train.X, test.X, train.pop, k = 8)
+knn8.conM <- table(knn.pred8, groupedPopularity)
+knn8.acc <- mean(knn.pred8 == groupedPopularity)
+knn8.test.error = (1 - knn8.acc)*100
+knn8.sen <- knn8.conM[2,2]/(knn8.conM[1,2]+knn8.conM[2,2])
+knn8.spec <- knn8.conM[1,1]/(knn8.conM[1,1]+knn8.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn8.conM
+knn8.acc
+knn8.test.error
+knn8.sen
+knn8.spec
+```
+
+### k = 10
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn.pred10 <- knn(train.X, test.X, train.pop, k = 10)
+knn10.conM <- table(knn.pred10, groupedPopularity)
+knn10.acc <- mean(knn.pred10 == groupedPopularity)
+knn10.test.error = (1 - knn10.acc)*100
+knn10.sen <- knn10.conM[2,2]/(knn10.conM[1,2]+knn10.conM[2,2])
+knn10.spec <- knn10.conM[1,1]/(knn10.conM[1,1]+knn10.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn10.conM
+knn10.acc
+knn10.test.error
+knn10.sen
+knn10.spec
+```
+
+
+
+## Classification on 50% Data
+
+### Spliting the data into Training and Testing Data
+```{r}
+dim(spTop_Num)
+set.seed(12)
+train <- (spTop_Num$Index < 998)
+test <- spTop_Num[!train, ]
+### Verify dimension of training and testing data
+dim(test)
+### Verify seeding and split data sets
+head(test)
+popTest <- groupedPopularity[!train]
+```
+
+### LDA
+```{r}
+library(MASS)
+lda.fit <- lda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, subset = train)
+lda.fit
+plot(lda.fit)
+```
+
+```{r}
+lda_pred = predict(lda.fit, test)
+names(lda_pred)
+```
+
+#### All LDA code with time tracking - 50% data
+```{r}
+start.time <- Sys.time()
+lda50.fit <- lda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, subset = train)
+lda50.fit
+plot(lda50.fit)
+lda_pred50 = predict(lda50.fit, test)
+names(lda_pred50)
+pred.lda50 <- predict(lda50.fit, test)
+lda50.conM <- table(pred.lda50$class, popTest)
+lda50.acc <- mean(pred.lda50$class == popTest)
+lda50.test.error = (1 - lda50.acc)*100
+lda50.sen <- lda50.conM[2,2]/(lda50.conM[1,2]+lda50.conM[2,2])
+lda50.spec <- lda50.conM[1,1]/(lda50.conM[1,1]+lda50.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+lda50.conM
+lda50.acc
+lda50.test.error
+lda50.sen
+lda50.spec
+```
+
+### QDA
+```{r}
+qda.fit <- qda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, subset = train)
+qda.fit
+```
+
+```{r}
+qda_pred = predict(qda.fit, test)
+names(qda_pred)
+```
+
+#### All QDA code with time tracking - 50% data
+```{r}
+start.time <- Sys.time()
+qda50.fit <- qda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, subset = train)
+qda50.fit
+qda_pred50 = predict(qda50.fit, test)
+names(qda_pred50)
+pred.qda50 <- predict(qda50.fit, test)
+qda50.conM <- table(pred.qda50$class, popTest)
+qda50.acc <- mean(pred.qda50$class == popTest)
+qda50.test.error = (1 - qda50.acc)*100
+qda50.sen <- qda50.conM[2,2]/(qda50.conM[1,2]+qda50.conM[2,2])
+qda50.spec <- qda50.conM[1,1]/(qda50.conM[1,1]+qda50.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+qda50.conM
+qda50.acc
+qda50.test.error
+qda50.sen
+qda50.spec
+```
+
+### Logistic Regression
+```{r}
+glm.fit <- glm(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, family = binomial())
+glm.fit
+glm.probs <- predict(glm.fit,  type = "response")
+```
+
+```{r}
+summary(glm.fit)
+```
+
+```{r}
+glm.probs[1:10]
+```
+
+#### All Logistic Regression Code with Time Tracking - 50% data
+```{r}
+start.time <- Sys.time()
+glm50.fit <- glm(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num, family = binomial())  ### Log. Reg. model
+glm50.fit
+glm50.probs <- predict(glm50.fit,  type = "response")
+glm50.pred=predict(glm50.fit, test[ , c("Index", "Year", "BPM", "Energy", "Danceability", "Loud_dB", "Liveness", "Valence", "Duration", "Acousticness", "Speechiness", "genreNumber")], n.pop = 997, type = "response")
+glm50.pred <- factor(ifelse(glm50.pred<=0.5, 0, 1))
+length(glm50.pred)  ### check length, is it the correct number of data points
+lr50.conM <- table(glm50.pred, popTest)
+lr50.acc <- mean(glm50.pred == popTest)
+lr50.test.error = (1 - lr50.acc)*100
+lr50.sen <- lr50.conM[2,2]/(lr50.conM[1,2]+lr50.conM[2,2])
+lr50.spec <- lr50.conM[1,1]/(lr50.conM[1,1]+lr50.conM[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+lr50.conM
+lr50.acc
+lr50.test.error
+lr50.sen
+lr50.spec
+```
+
+
+### KNN
+```{r}
+library(class)
+train.X50 <- cbind(spTop_Num$Year, spTop_Num$BPM, spTop_Num$Energy, spTop_Num$Danceability, spTop_Num$Loud_dB, spTop_Num$Liveness, spTop_Num$Valence, spTop_Num$Duration, spTop_Num$Acousticness, spTop_Num$Speechiness, spTop_Num$genreNumber)[train, ]
+test.X50 <- cbind(spTop_Num$Year, spTop_Num$BPM, spTop_Num$Energy, spTop_Num$Danceability, spTop_Num$Loud_dB, spTop_Num$Liveness, spTop_Num$Valence, spTop_Num$Duration, spTop_Num$Acousticness, spTop_Num$Speechiness, spTop_Num$genreNumber)[!train, ]
+train.pop50 <- groupedPopularity[train]
+```
+
+#### Set Seed and Run K = 1 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn1.pred50 <- knn(train.X50, test.X50, train.pop50, k = 1)
+knn1.conM50 <- table(knn1.pred50, popTest)
+knn1.acc50 <- mean(knn1.pred50 == popTest)
+knn1.test.error50 = (1 - knn1.acc50)*100
+knn1.sen50 <- knn1.conM50[2,2]/(knn1.conM50[1,2]+knn1.conM50[2,2])
+knn1.spec50 <- knn1.conM50[1,1]/(knn1.conM50[1,1]+knn1.conM50[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn1.conM50
+knn1.acc50
+knn1.test.error50
+knn1.sen50
+knn1.spec50
+```
+
+#### Set Seed and Run K = 3 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn3.pred50 <- knn(train.X50, test.X50, train.pop50, k = 3)
+knn3.conM50 <- table(knn3.pred50, popTest)
+knn3.acc50 <- mean(knn3.pred50 == popTest)
+knn3.test.error50 = (1 - knn3.acc50)*100
+knn3.sen50 <- knn3.conM50[2,2]/(knn3.conM50[1,2]+knn3.conM50[2,2])
+knn3.spec50 <- knn3.conM50[1,1]/(knn3.conM50[1,1]+knn3.conM50[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn3.conM50
+knn3.acc50
+knn3.test.error50
+knn3.sen50
+knn3.spec50
+```
+
+#### Set Seed and Run K = 5 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn5.pred50 <- knn(train.X50, test.X50, train.pop50, k = 5)
+knn5.conM50 <- table(knn5.pred50, popTest)
+knn5.acc50 <- mean(knn5.pred50 == popTest)
+knn5.test.error50 = (1 - knn5.acc50)*100
+knn5.sen50 <- knn5.conM50[2,2]/(knn5.conM50[1,2]+knn5.conM50[2,2])
+knn5.spec50 <- knn5.conM50[1,1]/(knn5.conM50[1,1]+knn5.conM50[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn5.conM50
+knn5.acc50
+knn5.test.error50
+knn5.sen50
+knn5.spec50
+```
+
+#### Set Seed and Run K = 8 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn8.pred50 <- knn(train.X50, test.X50, train.pop50, k = 8)
+knn8.conM50 <- table(knn8.pred50, popTest)
+knn8.acc50 <- mean(knn8.pred50 == popTest)
+knn8.test.error50 = (1 - knn8.acc50)*100
+knn8.sen50 <- knn8.conM50[2,2]/(knn8.conM50[1,2]+knn8.conM50[2,2])
+knn8.spec50 <- knn8.conM50[1,1]/(knn8.conM50[1,1]+knn8.conM50[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn8.conM50
+knn8.acc50
+knn8.test.error50
+knn8.sen50
+knn8.spec50
+```
+
+#### Set Seed and Run K = 10 model
+```{r}
+set.seed(12)
+start.time <- Sys.time()
+knn10.pred50 <- knn(train.X50, test.X50, train.pop50, k = 10)
+knn10.conM50 <- table(knn10.pred50, popTest)
+knn10.acc50 <- mean(knn10.pred50 == popTest)
+knn10.test.error50 = (1 - knn10.acc50)*100
+knn10.sen50 <- knn10.conM50[2,2]/(knn10.conM50[1,2]+knn10.conM50[2,2])
+knn10.spec50 <- knn10.conM50[1,1]/(knn10.conM50[1,1]+knn10.conM50[2,1])
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+#### Print out confusion matrix, accuracy, test error, sensitivity, and specificity
+```{r}
+knn10.conM50
+knn10.acc50
+knn10.test.error50
+knn10.sen50
+knn10.spec50
+```
+
+### Visualizations
+```{r}
+accuracy <- c(lr.acc*100, lr50.acc*100, lda.acc*100, lda50.acc*100, qda.acc*100, qda50.acc*100, knn1.acc*100, knn1.acc50*100, knn3.acc*100, knn3.acc50*100, knn5.acc*100, knn5.acc50*100, knn8.acc*100, knn8.acc50*100, knn10.acc*100, knn10.acc50*100)
+barplot(accuracy, main = "Method Accuracies, Full and 50% Data", names.arg=c("Logistic\n Regression", "Logistic\n Regression", "LDA", "LDA", "QDA", "QDA", "KNN=1", "KNN=1", "KNN = 3", "KNN = 3", "KNN = 5", "KNN = 5", "KNN = 8", "KNN = 8", "KNN = 10", "KNN = 10"), ylab = "Percent %", cex.names = 0.8, las = 2, space = c(0, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0), col = c("#9932cc", "#40e0d0"), legend=c("Full Data","50% Data"),axis.lty=1, )
+```
+
+```{r}
+sensitivity <- c(lr.sen*100, lr50.sen*100, lda.sen*100, lda50.sen*100, qda.sen*100, qda50.sen*100, knn1.sen*100, knn1.sen50*100, knn3.sen*100, knn3.sen50*100, knn5.sen*100, knn5.sen50*100, knn8.sen*100, knn8.sen50*100, knn10.sen*100, knn10.sen50*100)
+barplot(sensitivity, main = "Method Sensitivities, Full and 50% Data", names.arg=c("Logistic\n Regression", "Logistic\n Regression", "LDA", "LDA", "QDA", "QDA", "KNN=1", "KNN=1", "KNN = 3", "KNN = 3", "KNN = 5", "KNN = 5", "KNN = 8", "KNN = 8", "KNN = 10", "KNN = 10"), ylab = "Percent %", cex.names = 0.8, las = 2, space = c(0, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0), col = c("#9932cc", "#40e0d0"), legend=c("Full Data","50% Data"),axis.lty=1, )
+```
+
+```{r}
+specificity <- c(lr.spec*100, lr50.spec*100, lda.spec*100, lda50.spec*100, qda.spec*100, qda50.spec*100, knn1.spec*100, knn1.spec50*100, knn3.spec*100, knn3.spec50*100, knn5.spec*100, knn5.spec50*100, knn8.spec*100, knn8.spec50*100, knn10.spec*100, knn10.spec50*100)
+barplot(specificity, main = "Method Specificities, Full and 50% Data", names.arg=c("Logistic\n Regression", "Logistic\n Regression", "LDA", "LDA", "QDA", "QDA", "KNN=1", "KNN=1", "KNN = 3", "KNN = 3", "KNN = 5", "KNN = 5", "KNN = 8", "KNN = 8", "KNN = 10", "KNN = 10"), ylab = "Percent %", cex.names = 0.8, las = 2, space = c(0, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0, 2, 0), col = c("#9932cc", "#40e0d0"), legend=c("Full Data","50% Data"),axis.lty=1, )
+```
+
+
+## Decision Tree, Bagging, and Random Forest
+
+### Create training and test sets
+```{r}
+dim(spTop_Num)
+set.seed(12)
+train <- (spTop_Num$Index <= 997)
+top.test <- spTop_Num[-train, ]
+pop.test <- groupedPopularity[-train]
+### Verify dimension of training and testing data
+dim(test)
+length(train)
+### Verify seeding and split data sets
+head(test)
+length(top.test)
+length(pop.test)
+popTest <- groupedPopularity[!train]
+```
+
+
+### Decision Tree
+```{r}
+library(tree)
+
+start.time <- Sys.time()
+tree.pop <- tree(factor(groupedPopularity) ~ . -Index -groupedPopularity, data = spTop_Num)
+summary(tree.pop)
+plot(tree.pop)
+text(tree.pop, pretty = 0)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r}
+tree.pop
+```
+
+```{r}
+start.time <- Sys.time()
+tree.pop <- tree(factor(groupedPopularity) ~ . -Index -groupedPopularity, data = spTop_Num, subset = train)
+tree.pred <- predict(tree.pop, top.test, type = "class")
+table(tree.pred, pop.test)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r}
+acc.DT <- (635 + 564)/(635 + 438 + 356 + 564)  ## accuracy
+acc.DT
+se.DT <- 1 - acc.DT
+se.DT
+sen.DT <- 564/(438 + 564)  ## sensitivity
+sen.DT
+spec.DT <- 635/(635 + 356)  ## specificity
+spec.DT
+```
+
+```{r}
+set.seed(12)
+cv.topPop <- cv.tree(tree.pop, FUN = prune.misclass)
+names(cv.topPop)
+cv.topPop
+```
+
+```{r}
+par(mfrow = c(1, 2))
+plot(cv.topPop$size, cv.topPop$dev, type = "b")
+plot(cv.topPop$k, cv.topPop$dev, type = "b")
+```
+
+```{r chunk12}
+prune.topPop <- prune.tree(tree.pop, best = 7)
+plot(prune.topPop)
+text(prune.topPop, pretty = 0)
+```
+
+```{r}
+tart.time <- Sys.time()
+tree.pred <- predict(prune.topPop, top.test, type = "class")
+table(tree.pred, pop.test)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r}
+(627 + 564)/(627 + 438 + 364 + 564)  ## accuracy
+564/(438 + 564)  ## sensitivity
+627/(627 + 364)  ## specificity
+```
+
+Pruning doesn't appear to produce better results than the default decision tree.
+
+
+### Bagging
+```{r chunk19}
+library(randomForest)
+set.seed(12)
+start.time <- Sys.time()
+bag.Pop <- randomForest(factor(groupedPopularity) ~ . -Index -groupedPopularity, data = spTop_Num, subset = train, mtry = 11, importance = TRUE)
+bag.Pop
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r}
+(353 + 293)/997
+```
+
+Test set accuracy is 64.8%, with default of 500 trees.
+
+#### Set number of trees to 25
+```{r chunk20}
+start.time <- Sys.time()
+bag.pop <- randomForest(factor(groupedPopularity) ~ . -Index -groupedPopularity, data = spTop_Num, subset = train, mtry = 11, ntree = 25)
+yhat.bag <- predict(bag.Pop, newdata = spTop_Num[-train, ])
+conM.bag <- table(yhat.bag, pop.test)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+conM.bag
+```
+
+#### Accuracy
+```{r}
+acc.bag <- (conM.bag[1,1] + conM.bag[2,2])/(conM.bag[1,1] + conM.bag[1,2] + conM.bag[2,1] + conM.bag[2,2])
+acc.bag
+se.bag <- 1 - acc.bag
+se.bag
+```
+
+Test set accuracy is 78.7%, with only 25 trees. So setting the number of trees to 25 improved the accuracy of the test prediction by a significant amount and we see that having the extra complexity of 500 trees does not produce better results.
+
+#### Sensitivity and Specificity
+```{r}
+sen.bag <- conM.bag[2,2]/(conM.bag[1,2] + conM.bag[2,2])
+sen.bag
+spec.bag <- conM.bag[1,1]/(conM.bag[1,1] + conM.bag[2,1])
+spec.bag
+```
+
+
+### Random Forest
+#### with sqrt(p) for classification - sqrt(11) = 3.32
+```{r}
+set.seed(12)
+
+start.time <- Sys.time()
+rf.pop <- randomForest(factor(groupedPopularity) ~ . -Index -groupedPopularity, data = spTop_Num, subset = train, mtry = 4, importance = TRUE)
+yhat.rf <- predict(rf.pop, newdata = spTop_Num[-train, ])
+table(yhat.rf, pop.test)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+```
+
+```{r}
+acc.RF <- (752 + 820)/(752 + 182 + 239 + 820)  ## accuracy
+acc.RF
+se.RF <- 1 - acc.RF
+se.RF
+sen.RF <- 820/(182 + 820)  ## sensitivity
+sen.RF
+spec.RF <- 752/(752 + 239)  ## specificity
+spec.RF
+```
+
+Test set accuracy is 78.9%, using Random Forest.
+
+```{r}
+importance(rf.pop)
+```
+
+```{r}
+varImpPlot(rf.pop, cex=0.8)
+```
+
+From the Variable Importance plot we see that the Year variable is the most important predictor and that Danceability may be an important predictor.
+
+
+## Boosting
+```{r}
+set.seed(12)
+train <- (spTop_Num$Index <= 997)
+topPop.train <- spTop_Num[train, ]
+topPop.test <- spTop_Num[-train, ]
+```
+
+```{r}
+library(gbm)
+set.seed(12)
+start.time <- Sys.time()
+boost.pop <- gbm(groupedPopularity ~ . -Index -groupedPopularity, data = topPop.train, n.trees = 1000, shrinkage = 0.01, distribution = "bernoulli")
+boost.prob = predict(boost.pop, topPop.test, n.trees = 1000, type = "response")
+boost.pred = ifelse(boost.prob > 0.2, 1, 0)
+table(boost.pred, topPop.test$groupedPopularity)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+summary(boost.pop)
+```
+
+The Year, Loud_DB, and Danceability predictors appear to be the most important, we could may be also include genreNumber (the condensed genres categorized by numbers) as an important predictor as well.
+
+```{r}
+plot(boost.pop, i = "Year")
+plot(boost.pop, i = "Loud_dB")
+plot(boost.pop, i = "Danceability")
+plot(boost.pop, i = "genreNumber")
+```
+
+```{r}
+conM.boost <- table(boost.pred, topPop.test$groupedPopularity)
+conM.boost
+```
+
+
+```{r}
+acc.boost <- (conM.boost[1,1] + conM.boost[2,2])/(conM.boost[1,1] + conM.boost[1,2] + conM.boost[2,1] + conM.boost[2,2])
+acc.boost
+se.boost <- 1 - acc.boost
+se.boost
+sen.boost <- conM.boost[2,2]/(conM.boost[1,2] + conM.boost[2,2])
+sen.boost
+spec.boost <- conM.boost[1,1]/(conM.boost[1,1] + conM.boost[2,1])
+spec.boost
+```
+
+
+## Visualizations
+```{r}
+acc <- data.frame(group = rep(c("Accuracy", "Sensitivity", "Specificity"), each=12), 
+                     mth = rep(c("Logistic\n Regression", "LDA", "QDA", "KNN=1", "KNN = 3", "KNN = 5", "KNN = 8", "KNN = 10", "Decision\n Tree", "Bagging", 
+                                 "Random\n Forest", "Boosting"), times=3), 
+                     prct = c(lr50.acc*100, lda50.acc*100, qda50.acc*100, knn1.acc50*100, knn3.acc50*100,  knn5.acc50*100, knn8.acc50*100, knn10.acc50*100, 
+                              acc.DT*100, acc.bag*100, acc.RF*100, acc.boost*100, lr50.sen*100, lda50.sen*100, qda50.sen*100, knn1.sen50*100, knn3.sen50*100, 
+                              knn5.sen50*100, knn8.sen50*100, knn10.sen50*100, sen.DT*100, sen.bag*100, sen.RF*100, sen.boost*100, lr50.spec*100, 
+                              lda50.spec*100, qda50.spec*100, knn1.spec50*100, knn3.spec50*100, knn5.spec50*100, knn8.spec50*100, knn10.spec50*100, 
+                              spec.DT*100, spec.bag*100, spec.RF*100, spec.boost*100))
+acc$mth <- factor(acc$mth, levels = c("Logistic\n Regression", "LDA", "QDA", "KNN=1", "KNN = 3", "KNN = 5", "KNN = 8", "KNN = 10", "Decision\n Tree", 
+                                      "Bagging", "Random\n Forest", "Boosting"))
+#acc.order
+ggplot(acc, aes(x=mth, y=prct, fill=group)) + xlab("Classification Method") + ylab("Percent %") + 
+ggtitle("Method Accuracies, Sensitivities, and Specificities") +
+  geom_bar(stat="identity", position = position_dodge(0.75), width = 0.75) + scale_fill_manual(values = c("#9932cc", "#40e0d0", "#0000cd")) + 
+  theme(text = element_text(size = 9)) 
+```
+
+
+
+## K-Fold Cross Validation - k = 5
+
+### Five-Fold Cross-Validation
+```{r}
+names(spTop_Num)
+dim(spTop_Num)
+n=nrow(spTop_Num)
+m=ncol(spTop_Num)
+print(c(n,m))
+```
+
+```{r}
+set.seed(12)
+n_fold<-5;   ### number of cross validations
+repeat.fold <- rep(1:n_fold, length.out = nrow(spTop_Num), options(max.print = 2000)) ### repeat 1:n_fold until we can see the full size of n
+## repeat.fold
+```
+
+```{r}
+folds_i <- sample(rep(1:n_fold, length.out = nrow(spTop_Num))) ## without replacement
+table(folds_i)
+```
+
+#### 5-fold Cross-Validation for Logistic Regression Model - (manually)
+```{r}
+set.seed(12)
+n_fold<-5; # number of cross validations #
+folds_i <- sample(rep(1:n_fold, length.out = nrow(spTop_Num))) ##without replacement
+
+start.time <- Sys.time()
+OUT.glm=NULL
+TRUTH = NULL; OUTPUT=NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- which(folds_i == k)
+  train_set <- spTop_Num[-test.ID, ]  ## set up training set
+  test_set <- spTop_Num[test.ID, ]  ## set up validation set
+  
+  glm.fit = glm(groupedPopularity ~ . -Index -groupedPopularity, data=train_set, family=binomial)  ### set up LR model
+  glm.probs = predict(glm.fit, test_set, type="response")    ### get probabilities
+  
+  glm.pred = rep("0", length(test.ID))
+  glm.pred[glm.probs>.5] = "1"
+  table(glm.pred, test_set$groupedPopularity) ## confusion table
+  
+  Accuracy = mean(glm.pred == test_set$groupedPopularity) ## Prediction Accuracy
+  OUT.glm = c(OUT.glm, Accuracy)
+  
+  TRUTH = c(TRUTH, test_set$groupedPopularity)
+  OUTPUT = c(OUTPUT, glm.pred)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT.glm)  ## print out the 5 accuracies found for 5-fold CV
+mean(OUT.glm)   ## give the mean error for 5-fold CV
+sd(OUT.glm)     ## give the standard error for 5-fold CV
+```
+
+#### Boxplot of 5-fold CV of LR model
+```{r}
+boxplot(OUT.glm, col = "turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion = table(OUTPUT, TRUTH);
+print(confusion)
+```
+
+```{r}
+Overall.accuracy = sum(diag(confusion))/sum(confusion); 
+print(Overall.accuracy)
+```
+
+```{r}
+Overall.StError = 1 - Overall.accuracy;
+print(Overall.StError)
+```
+
+#### Find Sensitivity - 5-fold LR
+```{r}
+Sensitivity = confusion[2,2]/(confusion[1,2] + confusion[2,2]);
+Sensitivity
+```
+
+#### Find Specificity - 5-fold LR
+```{r}
+Specificity = confusion[1,1]/(confusion[1,1] + confusion[2,1]);
+Specificity
+```
+
+#### 5-fold CV for LDA using caret Package - (not manual method)
+```{r}
+install.packages("caret", repos = "http://cran.us.r-project.org") ## short for Classification And Regression Training
+require(caret)
+set.seed(12)
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+start.time <- Sys.time()
+OUT_LDA=NULL;
+TRUTH_LDA = NULL; OUTPUT_LDA = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  lda.fit = lda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num)
+  lda.pred = predict(lda.fit, test_set[,c(1:11,13)])
+  lda.class = lda.pred$class
+  table(lda.class, test_set[,12])
+  Accuracy = mean(lda.class == test_set[,12])
+  OUT_LDA = c(OUT_LDA, Accuracy)
+  
+  TRUTH_LDA = c(TRUTH_LDA, test_set[,12])
+  OUTPUT_LDA = c(OUTPUT_LDA, lda.class)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_LDA)
+print(mean(OUT_LDA))
+print(sd(OUT_LDA))
+```
+
+#### Boxplot of 5-fold CV of LDA model
+```{r}
+boxplot(OUT_LDA, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_LDA))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_LDA = table(OUTPUT_LDA, TRUTH_LDA);
+print(confusion_LDA)
+```
+
+```{r}
+Overall.accuracy_LDA = sum(diag(confusion_LDA))/sum(confusion_LDA); 
+print(Overall.accuracy_LDA)
+```
+
+```{r}
+Overall.StError_LDA = 1 - Overall.accuracy_LDA;
+print(Overall.StError_LDA)
+```
+
+#### Find Sensitivity - 5-fold LDA
+```{r}
+Sensitivity_LDA = confusion_LDA[2,2]/(confusion_LDA[1,2] + confusion_LDA[2,2]);
+Sensitivity_LDA
+```
+
+#### Find Specificity - 5-fold LDA
+```{r}
+Specificity_LDA = confusion_LDA[1,1]/(confusion_LDA[1,1] + confusion_LDA[2,1]);
+Specificity_LDA
+```
+
+
+### 5-fold CV for QDA - (not manual)
+```{r}
+require(caret)
+set.seed(12)
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+start.time <- Sys.time()
+OUT_QDA=NULL;
+TRUTH_QDA = NULL; OUTPUT_QDA = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  qda.fit = qda(groupedPopularity ~ . -Index -groupedPopularity, data = spTop_Num)
+  qda.pred = predict(qda.fit, test_set[,c(1:11, 13)])
+  qda.class = qda.pred$class
+  table(qda.class,test_set[,12])
+  Accuracy = mean(qda.class == test_set[,12])
+  OUT_QDA = c(OUT_QDA, Accuracy)
+  
+  TRUTH_QDA = c(TRUTH_QDA, test_set[,12])
+  OUTPUT_QDA = c(OUTPUT_QDA, qda.class)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_QDA)
+print(mean(OUT_QDA))
+print(sd(OUT_QDA))
+```
+
+#### Boxplot of 5-fold CV of QDA model
+```{r}
+boxplot(OUT_QDA, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_QDA))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_QDA = table(OUTPUT_QDA, TRUTH_QDA);
+print(confusion_QDA)
+```
+
+```{r}
+Overall.accuracy_QDA = sum(diag(confusion_QDA))/sum(confusion_QDA); 
+print(Overall.accuracy_QDA)
+```
+
+```{r}
+Overall.StError_QDA = 1 - Overall.accuracy_QDA;
+print(Overall.StError_QDA)
+```
+
+#### Find Sensitivity - 5-fold QDA
+```{r}
+Sensitivity_QDA = confusion_QDA[2,2]/(confusion_QDA[1,2] + confusion_QDA[2,2]);
+Sensitivity_QDA
+```
+
+#### Find Specificity - 5-fold QDA
+```{r}
+Specificity_QDA = confusion_QDA[1,1]/(confusion_QDA[1,1] + confusion_QDA[2,1]);
+Specificity_QDA
+```
+
+
+### 5-Fold CV for KNN
+```{r}
+set.seed(12)
+n_fold<-5; # number of cross validations #
+nrep <- rep(1:n_fold, length.out = nrow(spTop_Num)) ## repeat 1:n_fold until we can the full size of n
+## nrep
+```
+
+```{r}
+folds_i <- sample(rep(1:n_fold, length.out = nrow(spTop_Num))) ##without replacement
+table(folds_i)
+```
+
+#### Find out which value of K has the highest accuracy
+```{r}
+Final.OUT = NULL
+for (i in 1:10)
+{
+  OUT.KNN = NULL
+  for (j in 1:n_fold) 
+    {
+      test.ID <- which(folds_i == j)
+      train_X <- spTop_Num[-test.ID, c(1:11, 13)]
+      train_Y <- spTop_Num[-test.ID, 12]
+      test_X <- spTop_Num[test.ID, c(1:11, 13)]
+      test_Y <- spTop_Num[test.ID, 12]
+      knn.pred=knn(train_X, test_X, train_Y, k=i) 
+      #table(knn.pred,test_Y)
+      Accuracy = mean(knn.pred == test_Y)
+      OUT.KNN = c(OUT.KNN, Accuracy)
+  }
+  print(c(i, OUT.KNN))
+  Final.OUT = rbind(Final.OUT, OUT.KNN)  
+} 
+```
+
+```{r}
+apply(Final.OUT, 1, mean)
+```
+
+```{r}
+rowMeans(Final.OUT)
+```
+
+```{r}
+max(rowMeans(Final.OUT))
+```
+
+We see that K = 10 produces the best accuracy.
+
+## 5-fold CV for KNN = 10
+```{r}
+start.time <- Sys.time()
+OUT.KNN.5fold = NULL
+for (j in 1:n_fold) 
+{
+  test.ID <- which(folds_i == j)
+  train_X <- spTop_Num[-test.ID, c(1:11, 13)]
+  train_Y <- spTop_Num[-test.ID, 12]
+  test_X <- spTop_Num[test.ID, c(1:11, 13)]
+  test_Y <- spTop_Num[test.ID, 12]
+  knn.pred.5fold = knn(train_X, test_X, train_Y, k=10) 
+  table(knn.pred.5fold, test_Y)
+  Accuracy = mean(knn.pred.5fold == test_Y)
+  OUT.KNN.5fold = c(OUT.KNN.5fold, Accuracy)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT.KNN.5fold)
+```
+
+```{r}
+acc.KNN10.5fold <- mean(OUT.KNN.5fold) ## overall accuracy
+acc.KNN10.5fold
+
+se.KNN10.5fold <- 1 - acc.KNN10.5fold ## standard error
+se.KNN10.5fold
+
+Sensitivity_KNN10.5fold <- sensitivity(factor(knn.pred.5fold), factor(test_Y))
+Sensitivity_KNN10.5fold
+Specificity_KNN10.5fold <- specificity(factor(knn.pred.5fold), factor(test_Y))
+Specificity_KNN10.5fold
+```
+
+```{r}
+sd.KNN <- sd(OUT.KNN)
+```
+
+```{r}
+KNN.5fold=OUT.KNN
+boxplot(OUT.KNN,col="purple")
+```
+
+```{r}
+conM.KNN10.5fold <- table(knn.pred, test_Y)
+conM.KNN10.5fold
+```
+
+
+### 5-fold Cross Validation for Decision Tree
+```{r}
+require(caret)
+set.seed(12)
+
+start.time <- Sys.time()
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+OUT_DT = NULL;
+TRUTH_DT = NULL; OUTPUT_DT = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  DT.fit =  tree(factor(groupedPopularity) ~ . -Index, data = spTop_Num, subset = -test.ID)
+  DT.pred = predict(DT.fit, test_set[,c(1:11,13)], type = "class")
+  grPop <- spTop_Num$groupedPopularity[test.ID]
+  table(grPop,test_set[,12])
+  Accuracy = mean(DT.pred == test_set[,12])
+  OUT_DT = c(OUT_DT, Accuracy)
+  
+  TRUTH_DT = c(TRUTH_DT, test_set[,12])
+  OUTPUT_DT = c(OUTPUT_DT, DT.pred)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_DT)
+print(mean(OUT_DT))
+print(sd(OUT_DT))
+```
+
+#### Boxplot of 5-fold CV of DT model
+```{r}
+boxplot(OUT_DT, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_DT))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_DT = table(OUTPUT_DT, TRUTH_DT);
+print(confusion_DT)
+```
+
+```{r}
+Overall.accuracy_DT = sum(diag(confusion_DT))/sum(confusion_DT); 
+print(Overall.accuracy_DT)
+```
+
+```{r}
+Overall.StError_DT = 1 - Overall.accuracy_DT;
+print(Overall.StError_DT)
+```
+
+#### Find Sensitivity - 5-fold DT
+```{r}
+Sensitivity_DT = confusion_DT[2,2]/(confusion_DT[1,2] + confusion_DT[2,2]);
+Sensitivity_DT
+```
+
+#### Find Specificity - 5-fold DT
+```{r}
+Specificity_DT = confusion_DT[1,1]/(confusion_DT[1,1] + confusion_DT[2,1]);
+Specificity_DT
+```
+
+
+### 5-fold CV for Bagging
+```{r}
+require(caret)
+set.seed(12)
+
+start.time <- Sys.time()
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+OUT_bag = NULL;
+TRUTH_bag = NULL; OUTPUT_bag = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  bag.fit =  randomForest(factor(groupedPopularity) ~ . -Index, data = spTop_Num, subset = -test.ID, mtry = 11, ntree = 25)
+  bag.pred = predict(bag.fit, test_set[,c(1:11,13)], type = "class")
+  grPop <- spTop_Num$groupedPopularity[test.ID]
+  table(grPop,test_set[,12])
+  Accuracy = mean(bag.pred == test_set[,12])
+  OUT_bag = c(OUT_bag, Accuracy)
+  
+  TRUTH_bag = c(TRUTH_bag, test_set[,12])
+  OUTPUT_bag = c(OUTPUT_bag, bag.pred)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_bag)
+print(mean(OUT_bag))
+print(sd(OUT_bag))
+```
+
+#### Boxplot of 5-fold CV of Bagging model
+```{r}
+boxplot(OUT_bag, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_bag))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_bag = table(OUTPUT_bag, TRUTH_bag);
+print(confusion_bag)
+```
+
+```{r}
+Overall.accuracy_bag = sum(diag(confusion_bag))/sum(confusion_bag); 
+print(Overall.accuracy_bag)
+```
+
+```{r}
+Overall.StError_bag = 1 - Overall.accuracy_bag;
+print(Overall.StError_bag)
+```
+
+#### Find Sensitivity - 5-fold Bagging
+```{r}
+Sensitivity_bag = confusion_bag[2,2]/(confusion_bag[1,2] + confusion_bag[2,2]);
+Sensitivity_bag
+```
+
+#### Find Specificity - 5-fold Bagging
+```{r}
+Specificity_bag = confusion_bag[1,1]/(confusion_bag[1,1] + confusion_bag[2,1]);
+Specificity_bag
+```
+
+
+### 5-fold CV for Random Forest
+```{r}
+require(caret)
+set.seed(12)
+
+start.time <- Sys.time()
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+OUT_RF = NULL;
+TRUTH_RF = NULL; OUTPUT_RF = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  RF.fit =  randomForest(factor(groupedPopularity) ~ . -Index, data = spTop_Num, subset = -test.ID, mtry = 4, importance = TRUE)
+  RF.pred = predict(RF.fit, test_set[,c(1:11,13)], type = "class")
+  grPop <- spTop_Num$groupedPopularity[test.ID]
+  table(grPop, test_set[,12])
+  Accuracy = mean(RF.pred == test_set[,12])
+  OUT_RF = c(OUT_RF, Accuracy)
+  
+  TRUTH_RF = c(TRUTH_RF, test_set[,12])
+  OUTPUT_RF = c(OUTPUT_RF, RF.pred)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_RF)
+print(mean(OUT_RF))
+print(sd(OUT_RF))
+```
+
+#### Boxplot of 5-fold CV of Random Forest model
+```{r}
+boxplot(OUT_RF, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_RF))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_RF = table(OUTPUT_RF, TRUTH_RF);
+print(confusion_RF)
+```
+
+```{r}
+Overall.accuracy_RF = sum(diag(confusion_RF))/sum(confusion_RF); 
+print(Overall.accuracy_RF)
+```
+
+```{r}
+Overall.StError_RF = 1 - Overall.accuracy_RF;
+print(Overall.StError_RF)
+```
+
+#### Find Sensitivity - 5-fold Random Forest
+```{r}
+Sensitivity_RF = confusion_RF[2,2]/(confusion_RF[1,2] + confusion_RF[2,2]);
+Sensitivity_RF
+```
+
+#### Find Specificity - 5-fold Random Forest
+```{r}
+Specificity_RF = confusion_RF[1,1]/(confusion_RF[1,1] + confusion_RF[2,1]);
+Specificity_RF
+```
+
+
+### 5-fold Cross Validation for Boosting
+```{r}
+require(caret)
+set.seed(12)
+
+start.time <- Sys.time()
+folds <- createFolds(groupedPopularity, k = 5, list = TRUE, returnTrain = FALSE)
+
+OUT_boost = NULL;
+TRUTH_boost = NULL; OUTPUT_boost = NULL;
+for (k in 1:n_fold) 
+{
+  test.ID <- folds[[k]]
+  train_set <- spTop_Num[-test.ID, ]
+  test_set <- spTop_Num[test.ID, ]
+  boost.fit =  gbm(groupedPopularity ~ . -Index, data = spTop_Num, n.trees = 1000, shrinkage = 0.01, distribution = "bernoulli")
+  boost.pred = predict(boost.fit, test_set[,c(1:11,13)], type = "response")
+  boost.prediction <- ifelse(boost.pred >= .5, 1, 0)
+  grPop <- spTop_Num$groupedPopularity[test.ID]
+  table(grPop, test_set[,12])
+  Accuracy = mean(boost.prediction == test_set[,12])
+  OUT_boost = c(OUT_boost, Accuracy)
+  
+  TRUTH_boost = c(TRUTH_boost, test_set[,12])
+  OUTPUT_boost = c(OUTPUT_boost, boost.prediction)
+}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+print(OUT_boost)
+print(mean(OUT_boost))
+print(sd(OUT_boost))
+```
+
+#### Boxplot of 5-fold CV of Boosting
+```{r}
+boxplot(OUT_boost, col="turquoise")
+```
+
+```{r}
+contrasts(factor(TRUTH_boost))  ### setting up for confusion matrix
+```
+
+```{r}
+confusion_boost = table(OUTPUT_boost, TRUTH_boost);
+print(confusion_boost)
+```
+
+```{r}
+Overall.accuracy_boost = sum(diag(confusion_boost))/sum(confusion_boost); 
+print(Overall.accuracy_boost)
+```
+
+```{r}
+Overall.StError_boost = 1 - Overall.accuracy_boost;
+print(Overall.StError_boost)
+```
+
+#### Find Sensitivity - 5-fold Boosting
+```{r}
+Sensitivity_boost = confusion_boost[2,2]/(confusion_boost[1,2] + confusion_boost[2,2]);
+Sensitivity_boost
+```
+
+#### Find Specificity - 5-fold Boosting
+```{r}
+Specificity_boost = confusion_boost[1,1]/(confusion_boost[1,1] + confusion_boost[2,1]);
+Specificity_boost
+```
+
+
+### Cross Validation Visualizations
+```{r}
+acc_se <- data.frame(group = rep(c("5-Fold CV Accuracy", "5-Fold CV Error"), each=8), 
+                     mth = rep(c("Logistic\n Regression", "LDA", "QDA", "KNN = 10", "Decision\n Tree", "Bagging",     
+                           "Random\n Forest", "Boosting"), times=2), 
+                     prct = c(Overall.accuracy*100, Overall.accuracy_LDA*100, Overall.accuracy_QDA*100, acc.KNN10.5fold*100, 
+                            Overall.accuracy_DT*100, Overall.accuracy_bag*100, Overall.accuracy_RF*100, Overall.accuracy_boost*100, 
+                            Overall.StError*100, Overall.StError_LDA*100, Overall.StError_QDA*100, se.KNN10.5fold*100, Overall.StError_DT*100, 
+                            Overall.StError_bag*100, Overall.StError_RF*100, Overall.StError_boost*100
+                            ))
+acc_se$mth <- factor(acc_se$mth, levels = c("Logistic\n Regression", "LDA", "QDA", "KNN = 10", "Decision\n Tree", "Bagging",     
+                                            "Random\n Forest", "Boosting"))
+#acc_se.order
+ggplot(acc_se, aes(x=mth, y=prct, fill=group)) + xlab("Classification Method") + ylab("Percent %") + 
+ggtitle("Accuracy and Standard Error Across Classification Methods") +
+  geom_bar(stat="identity", position = position_dodge()) + scale_fill_manual(values = c("#9932cc", "#40e0d0"))
+```
+
+```{r}
+sen_spc <- data.frame(group=rep(c("5-Fold CV Sensitivity", "5-Fold CV Specificity"), each=8), 
+                     mth = rep(c("Logistic\n Regression", "LDA", "QDA", "KNN = 10", "Decision\n Tree", "Bagging", "Random\n Forest", 
+                                 "Boosting"), times=2), 
+                     prct = c(Sensitivity*100, Sensitivity_LDA*100, Sensitivity_QDA*100, Sensitivity_KNN10.5fold*100, Sensitivity_DT*100, 
+                              Sensitivity_bag*100, Sensitivity_RF*100, Sensitivity_boost*100, 
+                              Specificity*100, Specificity_LDA*100, Specificity_QDA*100, Specificity_KNN10.5fold*100, Specificity_DT*100, 
+                              Specificity_bag*100, Specificity_RF*100, Specificity_boost*100))
+sen_spc$mth <- factor(sen_spc$mth, levels = c("Logistic\n Regression", "LDA", "QDA", "KNN = 10", "Decision\n Tree", "Bagging",     
+                                            "Random\n Forest", "Boosting"))
+#acc_sd.order
+ggplot(sen_spc, aes(x=mth, y=prct, fill=group)) + xlab("Classification Method") + ylab("Percent %") + ggtitle("Sensitivity and Specificity Across Classification Methods") + 
+  geom_bar(stat="identity", position = position_dodge()) +
+             scale_fill_manual(values = c("#9932cc", "#40e0d0"))
+```
+
+
+```{r}
+library(sciplot);
+require(gplots) # for smartlegend
+
+LR.5fold = OUT.glm
+LDA.5fold = OUT_LDA
+QDA.5fold = OUT_QDA
+#KNN.5fold = OUT.KNN
+#KNN.5fold.1 = Final.OUT[1,]
+#KNN.5fold.3 = Final.OUT[2,]
+#KNN.5fold.5 = Final.OUT[3,]
+#KNN.5fold.8 = Final.OUT[4,]
+KNN.5fold.10 = Final.OUT[5,]
+DT.5fold = OUT_DT
+bag.5fold = OUT_bag
+RF.5fold = OUT_RF
+boost.5fold = OUT_boost
+
+Bestrate = t(cbind(t(LR.5fold), t(LDA.5fold), t(QDA.5fold), t(KNN.5fold.10), t(DT.5fold), t(bag.5fold), t(RF.5fold), t(boost.5fold)))
+Type = c(rep("Logistic Regression", 5), rep("LDA", 5), rep("QDA", 5), rep("KNN = 10",5), rep("Decision Tree",5), rep("Bagging",5), rep("Random Forest",5), rep("Boosting",5))
+Dat = data.frame(cbind(Bestrate, Type))
+Dat
+```
+
+
+```{r}
+Dat$Type <- factor(Dat$Type, levels = c("Logistic Regression", "LDA", "QDA", "KNN = 10", "Decision Tree", "Bagging",     
+                                            "Random Forest", "Boosting"))
+boxplot(Bestrate ~ Dat$Type, data=Dat,  xlab = "Methods", ylab = "Accuracy", 
+        col=rainbow(8), cex.axes=1,
+        main = "Boxplot for 5-Fold CV on SpotifyTop2000 Data", cex.main=1.5,
+        names = c("Logistic\n Regression", "LDA", "QDA", "KNN = 10", "Decision\n Tree", "Bagging", "Random\n Forest", "Boosting"), par(cex.axis=0.8)) 
+
+legend(x="bottomright", inset = 0,
+            c("Logistic Regression", "LDA", "QDA", "KNN = 10", "Decision Tree", "Bagging", "Random Forest", "Boosting"),   cex=0.7,
+            fill = rainbow(8))
+```
+
+
+
+
+
+
+
+
+
+
+
+
